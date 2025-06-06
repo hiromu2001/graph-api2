@@ -3,108 +3,102 @@ from fastapi.responses import FileResponse
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
 import os
-import uuid
+from matplotlib import rcParams
 
 app = FastAPI()
+
+# 日本語フォントの設定
+plt.rcParams["font.family"] = "IPAexGothic"  # Noto Sans JP や IPAexGothic をインストール済み前提
 
 @app.post("/generate-graphs")
 async def generate_graphs(file: UploadFile = File(...)):
     contents = await file.read()
-    df = pd.read_csv(pd.compat.StringIO(contents.decode("utf-8")))
+    df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
 
-    output_dir = "generated_graphs"
-    os.makedirs(output_dir, exist_ok=True)
+    required_columns = ["カテゴリ", "サブカテゴリ", "売上日", "売上金額", "数量", "気温", "値引率", "廃棄率"]
+    for col in required_columns:
+        if col not in df.columns:
+            return {"error": f"CSVに『{col}』の列が必要です"}
 
-    if not all(col in df.columns for col in ["単価", "販売数量", "売上金額", "商品名", "サブカテゴリ", "値引き率", "廃棄率", "曜日", "最高気温"]):
-        return {"error": "必要なカラムが含まれていません"}
+    df["売上日"] = pd.to_datetime(df["売上日"])
+    df["曜日"] = df["売上日"].dt.day_name()
+    df["金額"] = df["売上金額"]
 
-    df["金額"] = df["単価"] * df["販売数量"]
+    if not os.path.exists("graphs"):
+        os.makedirs("graphs")
 
-    def save_plot(fig, name):
-        path = os.path.join(output_dir, f"{name}.png")
-        fig.savefig(path)
+    graph_paths = []
+
+    def save_plot(fig, filename):
+        path = f"graphs/{filename}"
+        fig.savefig(path, bbox_inches='tight')
         plt.close(fig)
+        graph_paths.append(path)
 
     # 1. サブカテゴリ別売上
-    fig, ax = plt.subplots(figsize=(10, 6))
-    subcat_sales = df.groupby("サブカテゴリ")["金額"].sum().sort_values()
-    sns.barplot(x=subcat_sales.values, y=subcat_sales.index, ax=ax)
-    ax.set_title("サブカテゴリ別売上")
-    save_plot(fig, "subcat_sales")
+    fig1, ax1 = plt.subplots(figsize=(8, 6))
+    df.groupby("サブカテゴリ")["金額"].sum().sort_values().plot(kind="barh", ax=ax1)
+    ax1.set_title("サブカテゴリ別売上金額")
+    save_plot(fig1, "サブカテゴリ別売上.png")
 
     # 2. 曜日別売上
-    fig, ax = plt.subplots(figsize=(10, 6))
-    weekday_sales = df.groupby("曜日")["金額"].sum()
-    sns.barplot(x=weekday_sales.index, y=weekday_sales.values, ax=ax)
-    ax.set_title("曜日別売上")
-    save_plot(fig, "weekday_sales")
+    fig2, ax2 = plt.subplots(figsize=(8, 6))
+    df.groupby("曜日")["金額"].sum().reindex([
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    ]).plot(kind="bar", ax=ax2)
+    ax2.set_title("曜日別売上金額")
+    save_plot(fig2, "曜日別売上.png")
 
     # 3. 値引き率ごとの平均売上
-    fig, ax = plt.subplots(figsize=(10, 6))
-    discount_sales = df.groupby("値引き率")["金額"].mean()
-    sns.barplot(x=discount_sales.index, y=discount_sales.values, ax=ax)
-    ax.set_title("値引き率ごとの平均売上")
-    save_plot(fig, "discount_avg_sales")
+    fig3, ax3 = plt.subplots(figsize=(8, 6))
+    df.groupby("値引率")["金額"].mean().plot(kind="bar", ax=ax3)
+    ax3.set_title("値引き率ごとの平均売上金額")
+    save_plot(fig3, "値引率ごとの平均売上.png")
 
     # 4. 廃棄率ごとの平均売上
-    fig, ax = plt.subplots(figsize=(10, 6))
-    waste_sales = df.groupby("廃棄率")["金額"].mean()
-    sns.barplot(x=waste_sales.index, y=waste_sales.values, ax=ax)
-    ax.set_title("廃棄率ごとの平均売上")
-    save_plot(fig, "waste_avg_sales")
+    fig4, ax4 = plt.subplots(figsize=(8, 6))
+    df.groupby("廃棄率")["金額"].mean().plot(kind="bar", ax=ax4)
+    ax4.set_title("廃棄率ごとの平均売上金額")
+    save_plot(fig4, "廃棄率ごとの平均売上.png")
 
     # 5. 気温と売上の散布図
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(x="最高気温", y="金額", data=df, ax=ax)
-    ax.set_title("気温と売上の散布図")
-    save_plot(fig, "temp_vs_sales")
+    fig5, ax5 = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(data=df, x="気温", y="金額", ax=ax5)
+    ax5.set_title("気温と売上金額の関係")
+    save_plot(fig5, "気温と売上の散布図.png")
 
     # 6. 売上金額トップ10商品
-    fig, ax = plt.subplots(figsize=(10, 6))
-    top10_sales = df.groupby("商品名")["金額"].sum().sort_values(ascending=False).head(10)
-    sns.barplot(x=top10_sales.values, y=top10_sales.index, ax=ax)
-    ax.set_title("売上金額トップ10商品")
-    save_plot(fig, "top10_sales")
+    fig6, ax6 = plt.subplots(figsize=(8, 6))
+    df.groupby("サブカテゴリ")["金額"].sum().nlargest(10).plot(kind="bar", ax=ax6)
+    ax6.set_title("売上金額トップ10商品")
+    save_plot(fig6, "売上トップ10.png")
 
     # 7. 値引き率トップ10商品
-    fig, ax = plt.subplots(figsize=(10, 6))
-    top10_discount = df.groupby("商品名")["値引き率"].mean().sort_values(ascending=False).head(10)
-    sns.barplot(x=top10_discount.values, y=top10_discount.index, ax=ax)
-    ax.set_title("値引き率トップ10商品")
-    save_plot(fig, "top10_discount")
+    fig7, ax7 = plt.subplots(figsize=(8, 6))
+    df.groupby("サブカテゴリ")["値引率"].mean().nlargest(10).plot(kind="bar", ax=ax7)
+    ax7.set_title("値引き率トップ10商品")
+    save_plot(fig7, "値引率トップ10.png")
 
     # 8. 廃棄率トップ10商品
-    fig, ax = plt.subplots(figsize=(10, 6))
-    top10_waste = df.groupby("商品名")["廃棄率"].mean().sort_values(ascending=False).head(10)
-    sns.barplot(x=top10_waste.values, y=top10_waste.index, ax=ax)
-    ax.set_title("廃棄率トップ10商品")
-    save_plot(fig, "top10_waste")
+    fig8, ax8 = plt.subplots(figsize=(8, 6))
+    df.groupby("サブカテゴリ")["廃棄率"].mean().nlargest(10).plot(kind="bar", ax=ax8)
+    ax8.set_title("廃棄率トップ10商品")
+    save_plot(fig8, "廃棄率トップ10.png")
 
-    # 9. 気温とサブカテゴリの散布図
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(x="最高気温", y="金額", hue="サブカテゴリ", data=df, ax=ax)
-    ax.set_title("気温とサブカテゴリ別売上")
-    save_plot(fig, "temp_vs_subcat")
+    # 9. サブカテゴリ構成比（円グラフ）
+    fig9, ax9 = plt.subplots(figsize=(6, 6))
+    df.groupby("サブカテゴリ")["金額"].sum().plot.pie(autopct="%1.1f%%", ax=ax9)
+    ax9.set_ylabel("")
+    ax9.set_title("サブカテゴリ売上構成比")
+    save_plot(fig9, "サブカテゴリ構成比.png")
 
-    # 10. 曜日とサブカテゴリの散布図
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.stripplot(x="曜日", y="金額", hue="サブカテゴリ", data=df, dodge=True, ax=ax)
-    ax.set_title("曜日とサブカテゴリ別売上")
-    save_plot(fig, "weekday_vs_subcat")
+    # 10. 曜日構成比（円グラフ）
+    fig10, ax10 = plt.subplots(figsize=(6, 6))
+    df.groupby("曜日")["金額"].sum().plot.pie(autopct="%1.1f%%", ax=ax10)
+    ax10.set_ylabel("")
+    ax10.set_title("曜日別売上構成比")
+    save_plot(fig10, "曜日構成比.png")
 
-    # 11. サブカテゴリ別売上構成比（円グラフ）
-    fig, ax = plt.subplots(figsize=(8, 8))
-    subcat_pie = df.groupby("サブカテゴリ")["金額"].sum()
-    ax.pie(subcat_pie.values, labels=subcat_pie.index, autopct="%1.1f%%", startangle=140)
-    ax.set_title("サブカテゴリ別 売上構成比")
-    save_plot(fig, "subcat_pie")
-
-    # 12. 曜日別売上構成比（円グラフ）
-    fig, ax = plt.subplots(figsize=(8, 8))
-    weekday_pie = df.groupby("曜日")["金額"].sum()
-    ax.pie(weekday_pie.values, labels=weekday_pie.index, autopct="%1.1f%%", startangle=140)
-    ax.set_title("曜日別 売上構成比")
-    save_plot(fig, "weekday_pie")
-
-    return {"message": "グラフの生成が完了しました", "files": os.listdir(output_dir)}
+    return {"message": "グラフ生成成功", "files": graph_paths}
