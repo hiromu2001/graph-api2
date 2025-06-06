@@ -9,39 +9,41 @@ from io import StringIO
 
 app = FastAPI()
 
-# フォントをプロジェクト内のfontsフォルダから読み込む
+# 日本語フォントの設定
 font_path = os.path.join(os.path.dirname(__file__), "fonts", "NotoSansJP-Regular.ttf")
 font_prop = FontProperties(fname=font_path)
 plt.rcParams["font.family"] = font_prop.get_name()
 
 @app.post("/generate-graphs")
 async def generate_graph(file: UploadFile = File(...)):
-    # アップロードされたCSVファイルの読み込み
+    # ファイル読み込み
     contents = await file.read()
     df = pd.read_csv(StringIO(contents.decode("utf-8")))
 
-    # 列名が異なる場合に備えて変換
-    if "数量" not in df.columns:
-        if "販売数量" in df.columns:
-            df["数量"] = df["販売数量"]
-        else:
-            return {"error": "CSVに『数量』または『販売数量』の列が必要です"}
+    # 列名を標準化（別名があれば置き換える）
+    if "販売数量" in df.columns:
+        df["数量"] = df["販売数量"]
+    if "サブカテゴリ" in df.columns:
+        df["カテゴリ"] = df["サブカテゴリ"]
 
-    if "単価" not in df.columns or "カテゴリ" not in df.columns:
-        return {"error": "CSVに『単価』および『カテゴリ』の列が必要です"}
+    # 必須列の存在確認
+    required_columns = {"単価", "数量", "カテゴリ"}
+    if not required_columns.issubset(df.columns):
+        return {"error": "CSVに『単価』および『カテゴリ』と『数量』の列が必要です"}
 
-    # 売上金額の計算
+    # 売上金額列を作成
     df["金額"] = df["単価"] * df["数量"]
 
-    # カテゴリ別売上の集計
+    # カテゴリ別売上を集計
     category_sales = df.groupby("カテゴリ")["金額"].sum().sort_values(ascending=False)
 
-    # グラフの生成
+    # グラフ作成
     plt.figure(figsize=(10, 6))
     sns.barplot(x=category_sales.values, y=category_sales.index)
     plt.title("カテゴリ別売上")
     plt.xlabel("売上金額")
     plt.tight_layout()
+
     output_path = "category_sales.png"
     plt.savefig(output_path)
     plt.close()
