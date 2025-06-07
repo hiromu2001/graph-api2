@@ -7,9 +7,7 @@ import os
 from io import StringIO
 
 matplotlib.use("Agg")
-
 app = FastAPI()
-
 
 @app.post("/generate-graphs")
 async def generate_graphs(file: UploadFile = File(...)):
@@ -18,9 +16,18 @@ async def generate_graphs(file: UploadFile = File(...)):
         df = pd.read_csv(StringIO(contents.decode("utf-8")))
     except UnicodeDecodeError:
         return JSONResponse(content={"error": "文字コードの読み込みに失敗しました。UTF-8形式で保存してください。"}, status_code=400)
+    except Exception as e:
+        return JSONResponse(content={"error": f"CSV読み込み失敗: {str(e)}"}, status_code=400)
 
-    # カラム名の確認と前処理
-    required_cols = ["販売数量", "単価", "サブカテゴリ", "曜日", "最高気温", "値引き率", "廃棄率"]
+    # 列名の変換（互換性対応）
+    rename_map = {
+        "数量": "販売数量",
+        "カテゴリ": "サブカテゴリ"
+    }
+    df.rename(columns=rename_map, inplace=True)
+
+    # 必須カラムチェック
+    required_cols = ["販売数量", "単価", "サブカテゴリ", "曜日", "最高気温", "値引き率", "廃棄率", "商品名"]
     for col in required_cols:
         if col not in df.columns:
             return JSONResponse(content={"error": f"CSVに『{col}』の列が必要です"}, status_code=400)
@@ -29,11 +36,13 @@ async def generate_graphs(file: UploadFile = File(...)):
 
     os.makedirs("output", exist_ok=True)
 
-    # 各種グラフの作成
     def save_plot(fig, name):
         fig.tight_layout()
         fig.savefig(f"output/{name}.png")
         plt.close(fig)
+
+    # グラフ生成一覧
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
 
     # サブカテゴリ別売上
     fig1 = plt.figure()
@@ -42,7 +51,6 @@ async def generate_graphs(file: UploadFile = File(...)):
 
     # 曜日別売上
     fig2 = plt.figure()
-    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     df.groupby("曜日")["金額"].sum().reindex(weekdays).plot.bar(title="曜日別売上")
     save_plot(fig2, "weekday_sales")
 
@@ -95,14 +103,14 @@ async def generate_graphs(file: UploadFile = File(...)):
     plt.ylabel("平均売上")
     save_plot(fig10, "weekday_vs_subcat")
 
-    # 円グラフ: サブカテゴリ売上構成
+    # サブカテゴリ売上構成（円グラフ）
     fig11 = plt.figure()
     df.groupby("サブカテゴリ")["金額"].sum().plot.pie(autopct="%1.1f%%", startangle=90)
     plt.title("サブカテゴリ別売上構成")
     plt.ylabel("")
     save_plot(fig11, "subcat_pie")
 
-    # 円グラフ: 曜日売上構成
+    # 曜日別売上構成（円グラフ）
     fig12 = plt.figure()
     weekday_sum = df.groupby("曜日")["金額"].sum().reindex(weekdays)
     weekday_sum.dropna(inplace=True)
