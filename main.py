@@ -13,8 +13,8 @@ app = FastAPI()
 # フォント設定（日本語対応）
 font_path = "./fonts/NotoSansJP-Regular.ttf"
 if os.path.exists(font_path):
-    font_prop = fm.FontProperties(fname=font_path)
-    plt.rcParams["font.family"] = font_prop.get_name()
+    fm.fontManager.addfont(font_path)
+    plt.rcParams["font.family"] = "NotoSansJP"
 
 UPLOAD_DIR = "uploads"
 IMAGE_DIR = "images"
@@ -137,4 +137,3 @@ def upload_and_generate(file: UploadFile = File(...)):
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
-        
