@@ -17,13 +17,11 @@ async def generate_graphs(file: UploadFile = File(...)):
     except UnicodeDecodeError:
         return {"error": "CSVファイルの文字コードがUTF-8ではありません"}
 
-    # 「単価」「販売数量」の列が存在するかチェック
-    required_cols = ["単価", "販売数量"]
-    for col in required_cols:
-        if col not in df.columns:
-            return {"error": f"CSVに『{col}』の列が必要です"}
+    # 必須カラムの存在確認
+    if "単価" not in df.columns or "販売数量" not in df.columns or "曜日" not in df.columns:
+        return {"error": "CSVに『単価』『販売数量』『曜日』の列が必要です"}
 
-    # カテゴリ列の判定
+    # 「カテゴリ」がなければ「サブカテゴリ」を使う
     if "カテゴリ" in df.columns:
         category_col = "カテゴリ"
     elif "サブカテゴリ" in df.columns:
@@ -31,106 +29,74 @@ async def generate_graphs(file: UploadFile = File(...)):
     else:
         return {"error": "CSVに『カテゴリ』または『サブカテゴリ』の列が必要です"}
 
-    if "曜日" not in df.columns:
-        return {"error": "CSVに『曜日』の列が必要です"}
-
-    # 売上金額を追加
     df["金額"] = df["単価"] * df["販売数量"]
 
-    # グラフ出力用フォルダ
     output_dir = f"output_{uuid.uuid4().hex}"
     os.makedirs(output_dir, exist_ok=True)
 
-    # グラフ1: サブカテゴリ別売上
+    def save_plot(name):
+        plt.tight_layout()
+        path = os.path.join(output_dir, f"{name}.png")
+        plt.savefig(path)
+        plt.close()
+        return f"/{output_dir}/{name}.png"
+
+    urls = []
+
+    # グラフ: サブカテゴリ別売上
     df.groupby(category_col)["金額"].sum().sort_values().plot(kind="barh", title="サブカテゴリ別売上")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "サブカテゴリ別売上.png"))
-    plt.close()
+    urls.append(save_plot("サブカテゴリ別売上"))
 
-    # グラフ2: 曜日別売上
+    # グラフ: 曜日別売上
     df.groupby("曜日")["金額"].sum().reindex(["月", "火", "水", "木", "金", "土", "日"]).plot(kind="bar", title="曜日別売上")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "曜日別売上.png"))
-    plt.close()
+    urls.append(save_plot("曜日別売上"))
 
-    # グラフ3: 値引き率ごとの平均売上
+    # グラフ: 値引き率ごとの平均売上
     if "値引き率" in df.columns:
-        df.groupby("値引き率")["金額"].mean().plot(kind="line", marker="o", title="値引き率ごとの平均売上")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "値引き率ごとの平均売上.png"))
-        plt.close()
+        df.groupby("値引き率")["金額"].mean().plot(marker="o", title="値引き率ごとの平均売上")
+        urls.append(save_plot("値引き率ごとの平均売上"))
 
-        # グラフ: 値引き率トップ10商品
-        df["商品別金額"] = df["金額"]
-        top_discounted = df.sort_values("値引き率", ascending=False).head(10)
-        top_discounted[["商品名", "値引き率"]].set_index("商品名").plot(kind="bar", title="値引き率トップ10商品")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "値引き率トップ10商品.png"))
-        plt.close()
+        top = df.sort_values("値引き率", ascending=False).head(10)
+        top[["商品名", "値引き率"]].set_index("商品名").plot(kind="bar", title="値引き率トップ10商品")
+        urls.append(save_plot("値引き率トップ10商品"))
 
-    # グラフ4: 廃棄率ごとの平均売上
+    # グラフ: 廃棄率ごとの平均売上
     if "廃棄率" in df.columns:
-        df.groupby("廃棄率")["金額"].mean().plot(kind="line", marker="x", title="廃棄率ごとの平均売上")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "廃棄率ごとの平均売上.png"))
-        plt.close()
+        df.groupby("廃棄率")["金額"].mean().plot(marker="x", title="廃棄率ごとの平均売上")
+        urls.append(save_plot("廃棄率ごとの平均売上"))
 
-        # グラフ: 廃棄率トップ10商品
-        top_disposal = df.sort_values("廃棄率", ascending=False).head(10)
-        top_disposal[["商品名", "廃棄率"]].set_index("商品名").plot(kind="bar", title="廃棄率トップ10商品")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "廃棄率トップ10商品.png"))
-        plt.close()
+        top = df.sort_values("廃棄率", ascending=False).head(10)
+        top[["商品名", "廃棄率"]].set_index("商品名").plot(kind="bar", title="廃棄率トップ10商品")
+        urls.append(save_plot("廃棄率トップ10商品"))
 
-    # グラフ5: 気温と売上の散布図
+    # グラフ: 気温と売上の散布図
     if "気温" in df.columns:
         df.plot.scatter(x="気温", y="金額", title="気温と売上の散布図")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "気温と売上の散布図.png"))
-        plt.close()
+        urls.append(save_plot("気温と売上の散布図"))
 
-        # グラフ: 気温×サブカテゴリ
         df.groupby(["気温", category_col])["金額"].sum().unstack().plot(title="気温とサブカテゴリ別売上")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "気温とサブカテゴリ別売上.png"))
-        plt.close()
+        urls.append(save_plot("気温とサブカテゴリ別売上"))
 
-    # グラフ6: 曜日×サブカテゴリ別散布図
+    # グラフ: 曜日×サブカテゴリの散布図
     weekday_map = {"月":0, "火":1, "水":2, "木":3, "金":4, "土":5, "日":6}
     if df["曜日"].isin(weekday_map.keys()).all():
         df["曜日番号"] = df["曜日"].map(weekday_map)
         df.plot.scatter(x="曜日番号", y="金額", c="black", alpha=0.3, title="曜日と売上の散布図")
         plt.xticks(ticks=range(7), labels=["月", "火", "水", "木", "金", "土", "日"])
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "曜日と売上の散布図.png"))
-        plt.close()
+        urls.append(save_plot("曜日と売上の散布図"))
 
-    # グラフ7: 売上金額トップ10商品
-    top_sales = df.groupby("商品名")["金額"].sum().sort_values(ascending=False).head(10)
-    top_sales.plot(kind="bar", title="売上金額トップ10商品")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "売上金額トップ10商品.png"))
-    plt.close()
+    # グラフ: 売上金額トップ10商品
+    df.groupby("商品名")["金額"].sum().sort_values(ascending=False).head(10).plot(kind="bar", title="売上金額トップ10商品")
+    urls.append(save_plot("売上金額トップ10商品"))
 
-    # グラフ8: カテゴリ別売上構成（円グラフ）
-    category_sales = df.groupby(category_col)["金額"].sum()
-    category_sales.plot.pie(autopct="%1.1f%%", startangle=90, title="カテゴリ別売上構成比")
+    # 円グラフ: カテゴリ別構成
+    df.groupby(category_col)["金額"].sum().plot.pie(autopct="%1.1f%%", startangle=90, title="カテゴリ別売上構成比")
     plt.ylabel("")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "カテゴリ別売上構成比.png"))
-    plt.close()
+    urls.append(save_plot("カテゴリ別売上構成比"))
 
-    # グラフ9: 曜日別売上構成（円グラフ）
-    weekday_sales = df.groupby("曜日")["金額"].sum().reindex(["月", "火", "水", "木", "金", "土", "日"])
-    weekday_sales.plot.pie(autopct="%1.1f%%", startangle=90, title="曜日別売上構成比")
+    # 円グラフ: 曜日別構成
+    df.groupby("曜日")["金額"].sum().reindex(["月", "火", "水", "木", "金", "土", "日"]).plot.pie(autopct="%1.1f%%", startangle=90, title="曜日別売上構成比")
     plt.ylabel("")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "曜日別売上構成比.png"))
-    plt.close()
+    urls.append(save_plot("曜日別売上構成比"))
 
-    # グラフ画像のパス一覧を返す（Dify等のツールと接続しやすく）
-    result = {"graphs": []}
-    for filename in os.listdir(output_dir):
-        result["graphs"].append(f"/{output_dir}/{filename}")
-
-    return result
+    return {"graphs": urls}
