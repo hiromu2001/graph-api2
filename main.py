@@ -1,176 +1,132 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 
-# アプリと画像ディレクトリの設定
 app = FastAPI()
 
+# images フォルダが存在しない場合は作成
 if not os.path.exists("images"):
     os.makedirs("images")
 
+# static files 用の設定
 app.mount("/images", StaticFiles(directory="images"), name="images")
 
-# 読み込みと前処理
-def load_data():
-    csv_path = "売上データ_1週間_単価追加_utf8.csv"
-    df = pd.read_csv(csv_path)
-    print("=== CSV 読み込み成功 ===")
-    print(df.head())
-    
-    # 必要な列を確認
-    print("=== カラム一覧 ===")
-    print(df.columns)
+CSV_PATH = "uploaded_data.csv"
 
-    # 必要な前処理
-    df["金額"] = df["金額"].fillna(0)
-    df["曜日"] = df["曜日"].fillna("不明")
-    df["サブカテゴリ"] = df["サブカテゴリ"].fillna("不明")
-    return df
+@app.post("/upload-csv")
+def upload_csv(file: UploadFile = File(...)):
+    try:
+        df = pd.read_csv(file.file)
+        df.to_csv(CSV_PATH, index=False)
+        return {"message": "CSV uploaded and saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading CSV: {e}")
 
 @app.post("/generate-graphs")
 def generate_graphs():
-    df = load_data()
-    image_infos = []
+    try:
+        df = pd.read_csv(CSV_PATH)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="CSV file not found. Please upload first.")
 
-    weekdays = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+    # デバッグ用: 曜日別の売上合計を表示
+    if "曜日" not in df.columns or "金額" not in df.columns:
+        raise HTTPException(status_code=400, detail="曜日または金額列が存在しません")
 
-    # サブカテゴリ別売上
-    subcat_group = df.groupby("サブカテゴリ")["金額"].sum()
-    if not subcat_group.empty:
-        subcat_group.sort_values().plot.barh(title="サブカテゴリ別売上")
-        plt.tight_layout()
-        path = "images/subcat_sales.png"
-        plt.savefig(path)
-        plt.close()
-        image_infos.append({"title": "サブカテゴリ別売上", "url": f"/images/subcat_sales.png"})
-
-    # 曜日別売上
-    weekday_sales = df.groupby("曜日")["金額"].sum().reindex(weekdays)
     print("=== 曜日ごとの売上合計 ===")
+    weekday_order = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+    weekday_sales = df.groupby("曜日")["金額"].sum().reindex(weekday_order)
     print(weekday_sales)
-    if weekday_sales.sum() > 0:
-        weekday_sales.plot.bar(title="曜日別売上")
-        plt.tight_layout()
-        path = "images/weekday_sales.png"
-        plt.savefig(path)
-        plt.close()
-        image_infos.append({"title": "曜日別売上", "url": f"/images/weekday_sales.png"})
 
-    # 値引き率ごとの平均売上
+    graph_info = []
+
+    def save_plot(fig, filename, title):
+        filepath = f"images/{filename}"
+        fig.savefig(filepath)
+        plt.close(fig)
+        graph_info.append({"title": title, "url": f"https://graph-api2.onrender.com/images/{filename}"})
+
+    # グラフ1: サブカテゴリ別売上
+    if "サブカテゴリ" in df.columns:
+        fig1 = plt.figure()
+        df.groupby("サブカテゴリ")["金額"].sum().plot.bar(title="サブカテゴリ別売上")
+        save_plot(fig1, "subcat_sales.png", "サブカテゴリ別売上")
+
+    # グラフ2: 曜日別売上
+    fig2 = plt.figure()
+    weekday_sales.plot.bar(title="曜日別売上")
+    save_plot(fig2, "weekday_sales.png", "曜日別売上")
+
+    # グラフ3: 値引き率ごとの平均売上
     if "値引き率" in df.columns:
         discount_group = df.groupby("値引き率")["金額"].mean()
         if not discount_group.empty:
+            fig3 = plt.figure()
             discount_group.plot.bar(title="値引き率ごとの平均売上")
-            plt.tight_layout()
-            path = "images/discount_avg_sales.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "値引き率ごとの平均売上", "url": f"/images/discount_avg_sales.png"})
+            save_plot(fig3, "discount_avg_sales.png", "値引き率ごとの平均売上")
 
-    # 廃棄率ごとの平均売上
+    # グラフ4: 廃棄率ごとの平均売上
     if "廃棄率" in df.columns:
         waste_group = df.groupby("廃棄率")["金額"].mean()
         if not waste_group.empty:
+            fig4 = plt.figure()
             waste_group.plot.bar(title="廃棄率ごとの平均売上")
-            plt.tight_layout()
-            path = "images/waste_avg_sales.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "廃棄率ごとの平均売上", "url": f"/images/waste_avg_sales.png"})
+            save_plot(fig4, "waste_avg_sales.png", "廃棄率ごとの平均売上")
 
-    # 気温と売上の関係
+    # グラフ5: 気温と売上の関係
     if "気温" in df.columns:
-        temp_sales = df[["気温", "金額"]].dropna()
-        if not temp_sales.empty:
-            temp_sales.plot.scatter(x="気温", y="金額", title="気温と売上の関係")
-            plt.tight_layout()
-            path = "images/temp_vs_sales.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "気温と売上の関係", "url": f"/images/temp_vs_sales.png"})
+        fig5 = plt.figure()
+        plt.scatter(df["気温"], df["金額"])
+        plt.title("気温と売上の関係")
+        save_plot(fig5, "temp_vs_sales.png", "気温と売上の関係")
 
-    # 売上金額トップ10商品
+    # グラフ6: 売上金額トップ10商品
     if "商品名" in df.columns:
-        top10 = df.groupby("商品名")["金額"].sum().sort_values(ascending=False).head(10)
-        if not top10.empty:
-            top10.plot.barh(title="売上金額トップ10商品")
-            plt.tight_layout()
-            path = "images/top10_sales.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "売上金額トップ10商品", "url": f"/images/top10_sales.png"})
+        fig6 = plt.figure()
+        df.groupby("商品名")["金額"].sum().nlargest(10).plot.bar(title="売上金額トップ10商品")
+        save_plot(fig6, "top10_sales.png", "売上金額トップ10商品")
 
-    # 値引き率トップ10商品
-    if "値引き率" in df.columns and "商品名" in df.columns:
-        discount_top10 = df.groupby("商品名")["値引き率"].mean().sort_values(ascending=False).head(10)
-        if not discount_top10.empty:
-            discount_top10.plot.barh(title="値引き率トップ10商品")
-            plt.tight_layout()
-            path = "images/top10_discount.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "値引き率トップ10商品", "url": f"/images/top10_discount.png"})
+    # グラフ7: 値引き率トップ10商品
+    if "商品名" in df.columns and "値引き率" in df.columns:
+        fig7 = plt.figure()
+        df.groupby("商品名")["値引き率"].mean().nlargest(10).plot.bar(title="値引き率トップ10商品")
+        save_plot(fig7, "top10_discount.png", "値引き率トップ10商品")
 
-    # 廃棄率トップ10商品
-    if "廃棄率" in df.columns and "商品名" in df.columns:
-        waste_top10 = df.groupby("商品名")["廃棄率"].mean().sort_values(ascending=False).head(10)
-        if not waste_top10.empty:
-            waste_top10.plot.barh(title="廃棄率トップ10商品")
-            plt.tight_layout()
-            path = "images/top10_waste.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "廃棄率トップ10商品", "url": f"/images/top10_waste.png"})
+    # グラフ8: 廃棄率トップ10商品
+    if "商品名" in df.columns and "廃棄率" in df.columns:
+        fig8 = plt.figure()
+        df.groupby("商品名")["廃棄率"].mean().nlargest(10).plot.bar(title="廃棄率トップ10商品")
+        save_plot(fig8, "top10_waste.png", "廃棄率トップ10商品")
 
-    # 気温とサブカテゴリ別売上
-    if "気温" in df.columns:
-        temp_cat = df.groupby(["気温", "サブカテゴリ"])["金額"].mean().unstack().dropna(how='all')
-        if not temp_cat.empty:
-            temp_cat.plot(title="気温とサブカテゴリ別売上")
-            plt.tight_layout()
-            path = "images/temp_vs_subcat_sales.png"
-            plt.savefig(path)
-            plt.close()
-            image_infos.append({"title": "気温とサブカテゴリ別売上", "url": f"/images/temp_vs_subcat_sales.png"})
+    # グラフ9: 気温とサブカテゴリ別売上
+    if "気温" in df.columns and "サブカテゴリ" in df.columns:
+        fig9 = plt.figure()
+        sns.scatterplot(data=df, x="気温", y="金額", hue="サブカテゴリ")
+        plt.title("気温とサブカテゴリ別売上")
+        save_plot(fig9, "temp_vs_subcat_sales.png", "気温とサブカテゴリ別売上")
 
-    # 曜日とサブカテゴリの売上傾向
-    weekday_cat = df.groupby(["曜日", "サブカテゴリ"])["金額"].mean().unstack().reindex(weekdays)
-    if not weekday_cat.empty:
-        weekday_cat.plot(title="曜日とサブカテゴリの売上傾向")
-        plt.tight_layout()
-        path = "images/weekday_vs_subcat.png"
-        plt.savefig(path)
-        plt.close()
-        image_infos.append({"title": "曜日とサブカテゴリの売上傾向", "url": f"/images/weekday_vs_subcat.png"})
+    # グラフ10: 曜日とサブカテゴリの売上傾向
+    if "曜日" in df.columns and "サブカテゴリ" in df.columns:
+        fig10 = plt.figure()
+        pivot = df.pivot_table(index="曜日", columns="サブカテゴリ", values="金額", aggfunc="sum")
+        if not pivot.empty:
+            pivot = pivot.reindex(weekday_order)  # 曜日順に並べる
+            pivot.plot(kind="bar", stacked=True, title="曜日とサブカテゴリの売上傾向")
+            save_plot(fig10, "weekday_vs_subcat.png", "曜日とサブカテゴリの売上傾向")
 
-    # サブカテゴリ別売上構成（円グラフ）
-    subcat_sum = df.groupby("サブカテゴリ")["金額"].sum()
-    if not subcat_sum.empty:
-        subcat_sum.plot.pie(autopct="%1.1f%%", startangle=90)
-        plt.title("サブカテゴリ別売上構成")
-        plt.ylabel("")
-        plt.tight_layout()
-        path = "images/subcat_pie.png"
-        plt.savefig(path)
-        plt.close()
-        image_infos.append({"title": "サブカテゴリ別売上構成", "url": f"/images/subcat_pie.png"})
+    # グラフ11: サブカテゴリ別売上構成（円グラフ）
+    if "サブカテゴリ" in df.columns:
+        fig11 = plt.figure()
+        df.groupby("サブカテゴリ")["金額"].sum().plot.pie(title="サブカテゴリ別売上構成", autopct='%1.1f%%')
+        save_plot(fig11, "subcat_pie.png", "サブカテゴリ別売上構成")
 
-    # 曜日別売上構成（円グラフ）
-    weekday_sum = df.groupby("曜日")["金額"].sum().reindex(weekdays)
-    if weekday_sum.sum() > 0:
-        weekday_sum.plot.pie(autopct="%1.1f%%", startangle=90)
-        plt.title("曜日別売上構成")
-        plt.ylabel("")
-        plt.tight_layout()
-        path = "images/weekday_pie.png"
-        plt.savefig(path)
-        plt.close()
-        image_infos.append({"title": "曜日別売上構成", "url": f"/images/weekday_pie.png"})
+    # グラフ12: 曜日別売上構成（円グラフ）
+    fig12 = plt.figure()
+    weekday_sales.plot.pie(title="曜日別売上構成", autopct='%1.1f%%')
+    save_plot(fig12, "weekday_pie.png", "曜日別売上構成")
 
-    # 完了
-    for info in image_infos:
-        info["url"] = f"https://graph-api2.onrender.com{info['url']}"
-    return JSONResponse(content=image_infos)
+    return JSONResponse(content=graph_info)
