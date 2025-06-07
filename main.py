@@ -1,124 +1,138 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+import os
+import uuid
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
-import uuid
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
+import matplotlib.font_manager as fm
 
 app = FastAPI()
-app.mount("/images", StaticFiles(directory="images"), name="images")
 
-CSV_PATH = "uploaded.csv"
+# フォント設定（日本語対応）
+font_path = "./fonts/NotoSansCJKjp-Regular.otf"  # アップロード済みのフォントパス
+if os.path.exists(font_path):
+    fm.fontManager.addfont(font_path)
+    plt.rcParams["font.family"] = "Noto Sans CJK JP"
 
+UPLOAD_DIR = "uploads"
+IMAGE_DIR = "images"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(IMAGE_DIR, exist_ok=True)
 
-def save_uploaded_file(uploaded_file: UploadFile):
-    with open(CSV_PATH, "wb") as buffer:
-        buffer.write(uploaded_file.file.read())
+app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 
-
-def save_plot(fig, title):
-    if not os.path.exists("images"):
-        os.makedirs("images")
-    filename = f"{uuid.uuid4().hex}.png"
-    path = os.path.join("images", filename)
-    fig.savefig(path)
-    plt.close(fig)
-    return f"https://graph-api2.onrender.com/images/{filename}"
-
-
-def generate_all_graphs(df):
-    results = []
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("サブカテゴリ")["売上金額"].sum().plot(kind="bar", ax=ax)
-        ax.set_title("サブカテゴリ別売上")
-        results.append({"title": "サブカテゴリ別売上", "url": save_plot(fig, "subcat_sales")})
-    except Exception as e:
-        print(f"Error in サブカテゴリ別売上: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("曜日")["売上金額"].sum().plot(kind="bar", ax=ax)
-        ax.set_title("曜日別売上")
-        results.append({"title": "曜日別売上", "url": save_plot(fig, "weekday_sales")})
-    except Exception as e:
-        print(f"Error in 曜日別売上: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("値引き率")["売上金額"].mean().plot(kind="bar", ax=ax)
-        ax.set_title("値引き率ごとの平均売上")
-        results.append({"title": "値引き率ごとの平均売上", "url": save_plot(fig, "discount_avg_sales")})
-    except Exception as e:
-        print(f"Error in 値引き率ごとの平均売上: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("廃棄率")["売上金額"].mean().plot(kind="bar", ax=ax)
-        ax.set_title("廃棄率ごとの平均売上")
-        results.append({"title": "廃棄率ごとの平均売上", "url": save_plot(fig, "waste_avg_sales")})
-    except Exception as e:
-        print(f"Error in 廃棄率ごとの平均売上: {e}")
-
-    try:
-        fig = sns.lmplot(x="最高気温", y="売上金額", data=df)
-        plt.title("気温と売上の関係")
-        results.append({"title": "気温と売上の関係", "url": save_plot(plt.gcf(), "temp_vs_sales")})
-    except Exception as e:
-        print(f"Error in 気温と売上の関係: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("商品名")["売上金額"].sum().sort_values(ascending=False).head(10).plot(kind="bar", ax=ax)
-        ax.set_title("売上金額トップ10商品")
-        results.append({"title": "売上金額トップ10商品", "url": save_plot(fig, "top10_sales")})
-    except Exception as e:
-        print(f"Error in 売上金額トップ10商品: {e}")
-
-    try:
-        fig = sns.lmplot(x="最高気温", y="売上金額", hue="サブカテゴリ", data=df)
-        plt.title("気温とサブカテゴリ別売上")
-        results.append({"title": "気温とサブカテゴリ別売上", "url": save_plot(plt.gcf(), "temp_vs_subcat_sales")})
-    except Exception as e:
-        print(f"Error in 気温とサブカテゴリ別売上: {e}")
-
-    try:
-        fig = plt.figure()
-        sns.boxplot(x="曜日", y="売上金額", hue="サブカテゴリ", data=df)
-        plt.title("曜日とサブカテゴリの売上傾向")
-        results.append({"title": "曜日とサブカテゴリの売上傾向", "url": save_plot(plt.gcf(), "weekday_vs_subcat")})
-    except Exception as e:
-        print(f"Error in 曜日とサブカテゴリの売上傾向: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("サブカテゴリ")["売上金額"].sum().plot(kind="pie", ax=ax, autopct="%1.1f%%")
-        ax.set_ylabel("")
-        ax.set_title("サブカテゴリ別売上構成")
-        results.append({"title": "サブカテゴリ別売上構成", "url": save_plot(fig, "subcat_pie")})
-    except Exception as e:
-        print(f"Error in サブカテゴリ別売上構成: {e}")
-
-    try:
-        fig, ax = plt.subplots()
-        df.groupby("曜日")["売上金額"].sum().plot(kind="pie", ax=ax, autopct="%1.1f%%")
-        ax.set_ylabel("")
-        ax.set_title("曜日別売上構成")
-        results.append({"title": "曜日別売上構成", "url": save_plot(fig, "weekday_pie")})
-    except Exception as e:
-        print(f"Error in 曜日別売上構成: {e}")
-
-    return results
-
+df_cache = None
 
 @app.post("/upload-and-generate")
-async def upload_and_generate(file: UploadFile = File(...)):
-    save_uploaded_file(file)
-    df = pd.read_csv(CSV_PATH)
-    df.columns = df.columns.str.strip()
-    if "売上金額" not in df.columns:
-        return JSONResponse(content={"error": "CSVに'売上金額'列が存在しません。"}, status_code=400)
-    results = generate_all_graphs(df)
-    return results
+def upload_and_generate(file: UploadFile = File(...)):
+    global df_cache
+    try:
+        # CSV保存
+        csv_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(csv_path, "wb") as buffer:
+            buffer.write(file.file.read())
+
+        # データ読み込み
+        df = pd.read_csv(csv_path)
+        df_cache = df
+
+        required_columns = ['サブカテゴリ', '曜日', '値引き率', '廃棄率', '最高気温', '商品名', '金額']
+        for col in required_columns:
+            if col not in df.columns:
+                return JSONResponse(content={"error": f"CSVに'{col}'列が存在しません。"}, status_code=400)
+
+        # グラフ生成
+        def save_plot(fig, title):
+            filename = f"{uuid.uuid4().hex}.png"
+            path = os.path.join(IMAGE_DIR, filename)
+            fig.savefig(path)
+            plt.close(fig)
+            return {
+                "title": title,
+                "url": f"https://graph-api2.onrender.com/images/{filename}"
+            }
+
+        response = []
+
+        try:
+            fig = plt.figure()
+            sns.barplot(data=df, x="サブカテゴリ", y="金額", estimator=sum)
+            plt.xticks(rotation=45)
+            response.append(save_plot(fig, "サブカテゴリ別売上"))
+        except Exception as e:
+            print("Error in サブカテゴリ別売上:", e)
+
+        try:
+            fig = plt.figure()
+            sns.barplot(data=df, x="曜日", y="金額", estimator=sum)
+            response.append(save_plot(fig, "曜日別売上"))
+        except Exception as e:
+            print("Error in 曜日別売上:", e)
+
+        try:
+            fig = plt.figure()
+            sns.barplot(data=df, x="値引き率", y="金額")
+            response.append(save_plot(fig, "値引き率ごとの平均売上"))
+        except Exception as e:
+            print("Error in 値引き率ごとの平均売上:", e)
+
+        try:
+            fig = plt.figure()
+            sns.barplot(data=df, x="廃棄率", y="金額")
+            response.append(save_plot(fig, "廃棄率ごとの平均売上"))
+        except Exception as e:
+            print("Error in 廃棄率ごとの平均売上:", e)
+
+        try:
+            fig = plt.figure()
+            sns.scatterplot(data=df, x="最高気温", y="金額")
+            response.append(save_plot(fig, "気温と売上の関係"))
+        except Exception as e:
+            print("Error in 気温と売上の関係:", e)
+
+        try:
+            fig = plt.figure()
+            top10 = df.groupby("商品名")["金額"].sum().sort_values(ascending=False).head(10)
+            sns.barplot(x=top10.values, y=top10.index)
+            response.append(save_plot(fig, "売上金額トップ10商品"))
+        except Exception as e:
+            print("Error in 売上金額トップ10商品:", e)
+
+        try:
+            fig = plt.figure()
+            sns.scatterplot(data=df, x="最高気温", y="金額", hue="サブカテゴリ")
+            response.append(save_plot(fig, "気温とサブカテゴリ別売上"))
+        except Exception as e:
+            print("Error in 気温とサブカテゴリ別売上:", e)
+
+        try:
+            fig = plt.figure()
+            sns.boxplot(data=df, x="曜日", y="金額", hue="サブカテゴリ")
+            response.append(save_plot(fig, "曜日とサブカテゴリの売上傾向"))
+        except Exception as e:
+            print("Error in 曜日とサブカテゴリの売上傾向:", e)
+
+        try:
+            fig = plt.figure()
+            pie_data = df.groupby("サブカテゴリ")["金額"].sum()
+            plt.pie(pie_data.values, labels=pie_data.index, autopct='%1.1f%%')
+            plt.axis("equal")
+            response.append(save_plot(fig, "サブカテゴリ別売上構成"))
+        except Exception as e:
+            print("Error in サブカテゴリ別売上構成:", e)
+
+        try:
+            fig = plt.figure()
+            pie_data = df.groupby("曜日")["金額"].sum()
+            plt.pie(pie_data.values, labels=pie_data.index, autopct='%1.1f%%')
+            plt.axis("equal")
+            response.append(save_plot(fig, "曜日別売上構成"))
+        except Exception as e:
+            print("Error in 曜日別売上構成:", e)
+
+        return response
+
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
