@@ -11,7 +11,7 @@ import matplotlib.font_manager as fm
 app = FastAPI()
 
 # フォント設定（日本語対応）
-font_path = "./fonts/NotoSansCJKjp-Regular.otf"  # アップロード済みのフォントパス
+font_path = "./fonts/NotoSansCJKjp-Regular.ttf"  # アップロード済みのフォントパス
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
     plt.rcParams["font.family"] = "Noto Sans CJK JP"
