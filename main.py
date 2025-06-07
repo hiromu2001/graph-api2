@@ -59,7 +59,6 @@ def upload_and_generate(file: UploadFile = File(...)):
 
         response = []
 
-        # 1. サブカテゴリ別売上
         try:
             fig = plt.figure()
             sns.barplot(data=df, x="サブカテゴリ", y="売上金額", estimator=sum)
@@ -68,7 +67,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in サブカテゴリ別売上:", e)
 
-        # 2. 曜日別売上
         try:
             fig = plt.figure()
             sns.barplot(data=df, x="曜日", y="売上金額", estimator=sum)
@@ -76,7 +74,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 曜日別売上:", e)
 
-        # 3. 値引き率ごとの平均売上
         try:
             fig = plt.figure()
             sns.barplot(data=df, x="値引き率", y="売上金額")
@@ -84,7 +81,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 値引き率ごとの平均売上:", e)
 
-        # 4. 廃棄率ごとの平均売上
         try:
             fig = plt.figure()
             sns.barplot(data=df, x="廃棄率", y="売上金額")
@@ -92,7 +88,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 廃棄率ごとの平均売上:", e)
 
-        # 5. 気温と売上の関係
         try:
             fig = plt.figure()
             sns.scatterplot(data=df, x="最高気温", y="売上金額")
@@ -100,7 +95,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 気温と売上の関係:", e)
 
-        # 6. 売上金額トップ10商品
         try:
             fig = plt.figure()
             top10 = df.groupby("商品名")["売上金額"].sum().sort_values(ascending=False).head(10)
@@ -109,7 +103,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 売上金額トップ10商品:", e)
 
-        # 7. 気温とサブカテゴリ別売上
         try:
             fig = plt.figure()
             sns.scatterplot(data=df, x="最高気温", y="売上金額", hue="サブカテゴリ")
@@ -117,7 +110,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 気温とサブカテゴリ別売上:", e)
 
-        # 8. 曜日とサブカテゴリの売上傾向
         try:
             fig = plt.figure()
             sns.boxplot(data=df, x="曜日", y="売上金額", hue="サブカテゴリ")
@@ -125,7 +117,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in 曜日とサブカテゴリの売上傾向:", e)
 
-        # 9. サブカテゴリ別売上構成
         try:
             fig = plt.figure()
             pie_data = df.groupby("サブカテゴリ")["売上金額"].sum()
@@ -135,7 +126,6 @@ def upload_and_generate(file: UploadFile = File(...)):
         except Exception as e:
             print("Error in サブカテゴリ別売上構成:", e)
 
-        # 10. 曜日別売上構成
         try:
             fig = plt.figure()
             pie_data = df.groupby("曜日")["売上金額"].sum()
